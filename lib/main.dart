@@ -14,6 +14,31 @@ void main() {
   runApp(const ProviderScope(child: WasteCitizenApp()));
 }
 
+/// تابع اعمال سراسری فونت و تنظیم فاصله فشرده حروف فارسی روی تمام استایل‌ها
+TextTheme _buildAppTextTheme(String fontFamily, double letterSpacing) {
+  final base = ThemeData.light().textTheme.apply(fontFamily: fontFamily);
+  TextStyle? adjust(TextStyle? style) =>
+      style?.copyWith(letterSpacing: letterSpacing);
+
+  return base.copyWith(
+    displayLarge: adjust(base.displayLarge),
+    displayMedium: adjust(base.displayMedium),
+    displaySmall: adjust(base.displaySmall),
+    headlineLarge: adjust(base.headlineLarge),
+    headlineMedium: adjust(base.headlineMedium),
+    headlineSmall: adjust(base.headlineSmall),
+    titleLarge: adjust(base.titleLarge),
+    titleMedium: adjust(base.titleMedium),
+    titleSmall: adjust(base.titleSmall),
+    bodyLarge: adjust(base.bodyLarge),
+    bodyMedium: adjust(base.bodyMedium),
+    bodySmall: adjust(base.bodySmall),
+    labelLarge: adjust(base.labelLarge),
+    labelMedium: adjust(base.labelMedium),
+    labelSmall: adjust(base.labelSmall),
+  );
+}
+
 class WasteCitizenApp extends StatelessWidget {
   const WasteCitizenApp({super.key});
 
@@ -31,11 +56,13 @@ class WasteCitizenApp extends StatelessWidget {
         GlobalCupertinoLocalizations.delegate,
       ],
       theme: ThemeData(
-        fontFamily: 'IRANSans',
+        fontFamily: 'IranianSans',
         colorScheme: ColorScheme.fromSeed(
           seedColor: const Color(0xFF1B5E20),
           primary: const Color(0xFF2E7D32),
         ),
+        // 👈 اعمال یکپارچه استایل متنی با فاصله حروف تنظیم‌شده
+        textTheme: _buildAppTextTheme('IranianSans', -0.35),
         useMaterial3: true,
       ),
       home: const AuthGateScreen(),
