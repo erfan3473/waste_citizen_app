@@ -9,7 +9,7 @@ import 'package:geolocator/geolocator.dart';
 import 'package:dio/dio.dart';
 
 import 'package:waste_citizen_app/core/network/dio_client.dart';
-import 'package:waste_citizen_app/features/tracking/presentation/tracking_screen.dart';
+import '../../navigation/presentation/main_navigation_screen.dart';
 import '../../transactions/presentation/transactions_history_screen.dart';
 import 'order_state.dart';
 import 'widgets/schedule_picker_sheet.dart';
@@ -50,6 +50,55 @@ class _MapPickerScreenState extends ConsumerState<MapPickerScreen> {
     _searchController.dispose();
     _fullAddressController.dispose();
     super.dispose();
+  }
+
+  /// تبدیل تاریخ میلادی دریافتی به شمسی استاندارد بدون نیاز به پکیج خارجی
+  String _toShamsi(String gregorianDateStr) {
+    try {
+      final parts = gregorianDateStr.split('-');
+      if (parts.length != 3) return gregorianDateStr;
+      int gy = int.parse(parts[0]);
+      int gm = int.parse(parts[1]);
+      int gd = int.parse(parts[2]);
+
+      final gDaysInMonth = [0, 31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
+      if (gy % 4 == 0 && (gy % 100 != 0 || gy % 400 == 0)) {
+        gDaysInMonth[2] = 29;
+      }
+      int gy2 = (gm > 2) ? (gy + 1) : gy;
+      int gDayNo =
+          365 * gy +
+          ((gy2 + 3) ~/ 4) -
+          ((gy2 + 99) ~/ 100) +
+          ((gy2 + 399) ~/ 400) -
+          80;
+      for (int i = 0; i < gm; ++i) {
+        gDayNo += gDaysInMonth[i];
+      }
+      gDayNo += gd;
+
+      int jNp = gDayNo ~/ 12053;
+      gDayNo %= 12053;
+      int jy = 979 + 33 * jNp + 4 * (gDayNo ~/ 1461);
+      gDayNo %= 1461;
+
+      if (gDayNo >= 366) {
+        jy += ((gDayNo - 1) ~/ 365);
+        gDayNo = (gDayNo - 1) % 365;
+      }
+
+      int jm, jd;
+      if (gDayNo < 186) {
+        jm = 1 + (gDayNo ~/ 31);
+        jd = 1 + (gDayNo % 31);
+      } else {
+        jm = 7 + ((gDayNo - 186) ~/ 30);
+        jd = 1 + ((gDayNo - 186) % 30);
+      }
+      return '$jy/${jm.toString().padLeft(2, '0')}/${jd.toString().padLeft(2, '0')}';
+    } catch (_) {
+      return gregorianDateStr;
+    }
   }
 
   /// استخراج خودکار آدرس کامل از مختصات پین‌شده روی نقشه
@@ -175,23 +224,27 @@ class _MapPickerScreenState extends ConsumerState<MapPickerScreen> {
     }
   }
 
-  /// انتقال دوربین نقشه به نقطه انتخاب‌شده از نتایج جستجو
+  /// انتقال دوربین نقشه به نقطه انتخاب‌شده و لود آنی تایل‌ها
   void _selectSearchResult(Map<String, dynamic> item) {
     final lat = double.tryParse(item['lat']?.toString() ?? '');
     final lon = double.tryParse(item['lon']?.toString() ?? '');
 
     if (lat != null && lon != null) {
       final target = LatLng(lat, lon);
-      _mapController.move(target, 16.5);
-      ref.read(selectedLocationProvider.notifier).state = target;
 
+      // ۱. بستن کامل کیبورد و خالی کردن نتایج
+      FocusScope.of(context).unfocus();
       setState(() {
         _searchResults = [];
         _searchController.clear();
       });
-      FocusScope.of(context).unfocus();
 
-      _reverseGeocode(target);
+      // ۲. انتقال نقشه در فریم بعدی پس از تثبیت ابعاد ویوپورت تمام‌صفحه
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        _mapController.move(target, 16.5);
+        ref.read(selectedLocationProvider.notifier).state = target;
+        _reverseGeocode(target);
+      });
     }
   }
 
@@ -280,7 +333,7 @@ class _MapPickerScreenState extends ConsumerState<MapPickerScreen> {
     }
   }
 
-  /// باز شدن باتم‌شیت بررسی و ویرایش نشانی تجمیع‌شده قبل از انتخاب زمان
+  /// باز شدن باتم‌شیت بررسی و ویرایش نشانی قبل از انتخاب زمان
   Future<bool?> _showAddressDetailsSheet() {
     return showModalBottomSheet<bool>(
       context: context,
@@ -384,6 +437,141 @@ class _MapPickerScreenState extends ConsumerState<MapPickerScreen> {
     );
   }
 
+  /// ثبت سفارش در سرور و نمایش دیالوگ رسمی تأیید با تاریخ شمسی
+  Future<void> _submitOrder(
+    BuildContext context,
+    WidgetRef ref,
+    Map<String, dynamic> payload,
+    String shamsiDate,
+    String timeSlot,
+  ) async {
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (_) => const Center(child: CircularProgressIndicator()),
+    );
+
+    try {
+      final dio = ref.read(dioProvider);
+      final response = await dio.post('citizen/requests/', data: payload);
+
+      if (context.mounted) Navigator.of(context).pop(); // بستن لودینگ
+
+      final orderId = response.data['id'];
+
+      ref.read(orderDraftProvider.notifier).clear();
+      _fullAddressController.clear();
+
+      if (context.mounted) {
+        showDialog(
+          context: context,
+          barrierDismissible: false,
+          builder: (ctx) => AlertDialog(
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(20),
+            ),
+            title: Row(
+              children: const [
+                Icon(
+                  Icons.check_circle_rounded,
+                  color: Color(0xFF2E7D32),
+                  size: 30,
+                ),
+                SizedBox(width: 10),
+                Text(
+                  'درخواست با موفقیت ثبت شد',
+                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                ),
+              ],
+            ),
+            content: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'کد پیگیری درخواست: #$orderId',
+                  style: const TextStyle(
+                    fontWeight: FontWeight.bold,
+                    color: Colors.black87,
+                  ),
+                ),
+                const SizedBox(height: 12),
+                Container(
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFE8F5E9),
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: Text(
+                    'ناوگان اکو در تاریخ $shamsiDate و بازه زمانی $timeSlot جهت دریافت و بازیابی پسماندهای خشک به آدرس شما مراجعه خواهد کرد.',
+                    style: const TextStyle(
+                      fontSize: 13.5,
+                      height: 1.5,
+                      color: Color(0xFF1B5E20),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 14),
+                Row(
+                  children: const [
+                    Icon(
+                      Icons.phone_in_talk_outlined,
+                      size: 18,
+                      color: Colors.grey,
+                    ),
+                    SizedBox(width: 8),
+                    Text(
+                      'پشتیبانی و هماهنگی اکو: ۰۵۱-۳۱۵۱۵',
+                      style: TextStyle(fontSize: 12.5, color: Colors.grey),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+            actions: [
+              SizedBox(
+                width: double.infinity,
+                child: ElevatedButton(
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: const Color(0xFF2E7D32),
+                    foregroundColor: Colors.white,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                  ),
+                  onPressed: () {
+                    Navigator.of(ctx).pop(); // بستن دیالوگ
+                    // هدایت قطعی به صفحه اصلی بدون باقی ماندن در استک نقشه
+                    Navigator.of(context).pushAndRemoveUntil(
+                      MaterialPageRoute(
+                        builder: (_) => const MainNavigationScreen(),
+                      ),
+                      (route) => false,
+                    );
+                  },
+                  child: const Text(
+                    'متوجه شدم و بازگشت به خانه',
+                    style: TextStyle(fontWeight: FontWeight.bold),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        );
+      }
+    } catch (e) {
+      if (context.mounted) {
+        Navigator.of(context).pop();
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('خطا در ثبت سفارش: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final selectedLocation = ref.watch(selectedLocationProvider);
@@ -394,7 +582,7 @@ class _MapPickerScreenState extends ConsumerState<MapPickerScreen> {
     return Scaffold(
       body: Stack(
         children: [
-          // ۱. نقشه تمام‌صفحه
+          // ۱. نقشه تمام‌صفحه با بافر هوشمند جهت بارگذاری بدون درنگ تایل‌ها
           Positioned.fill(
             child: FlutterMap(
               mapController: _mapController,
@@ -422,12 +610,14 @@ class _MapPickerScreenState extends ConsumerState<MapPickerScreen> {
                 TileLayer(
                   urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
                   userAgentPackageName: 'com.ariobonyantoos.waste_citizen_app',
+                  panBuffer: 2, // لود فوری تایل‌های پیرامون
+                  keepBuffer: 3, // جلوگیری از پاک شدن پیش‌فرض کش در جابجایی
                 ),
               ],
             ),
           ),
 
-          // ۲. پین مرکزی سبز رنگ با شفافیت ملایم (تمیز و بدون خط اضافه)
+          // ۲. پین سبز با شفافیت ملایم در مرکز صفحه
           Center(
             child: Padding(
               padding: const EdgeInsets.only(bottom: 44.0),
@@ -466,7 +656,18 @@ class _MapPickerScreenState extends ConsumerState<MapPickerScreen> {
                       color: Colors.black87,
                     ),
                     tooltip: 'بازگشت',
-                    onPressed: () => Navigator.of(context).pop(),
+                    onPressed: () {
+                      if (Navigator.of(context).canPop()) {
+                        Navigator.of(context).pop();
+                      } else {
+                        Navigator.of(context).pushAndRemoveUntil(
+                          MaterialPageRoute(
+                            builder: (_) => const MainNavigationScreen(),
+                          ),
+                          (route) => false,
+                        );
+                      }
+                    },
                   ),
                 ),
 
@@ -566,7 +767,7 @@ class _MapPickerScreenState extends ConsumerState<MapPickerScreen> {
             ),
           ),
 
-          // ۵. بخش پایینی: سرچ‌بار متنی با دکمه اختصاصی + دکمه تأیید موقعیت با فاصله استاندارد
+          // ۵. بخش پایینی: سرچ‌بار متنی با دکمه اختصاصی + دکمه تأیید موقعیت
           Positioned(
             left: 16,
             right: 16,
@@ -574,7 +775,6 @@ class _MapPickerScreenState extends ConsumerState<MapPickerScreen> {
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
-                // لیست نتایج جستجو
                 if (_searchResults.isNotEmpty)
                   Container(
                     margin: const EdgeInsets.only(bottom: 8),
@@ -616,7 +816,6 @@ class _MapPickerScreenState extends ConsumerState<MapPickerScreen> {
                     ),
                   ),
 
-                // ردیف کادر جستجو و دکمه اختصاصی سرچ
                 Row(
                   children: [
                     Expanded(
@@ -666,7 +865,6 @@ class _MapPickerScreenState extends ConsumerState<MapPickerScreen> {
                       ),
                     ),
                     const SizedBox(width: 8),
-                    // دکمه اختصاصی سرچ در صفحه
                     Container(
                       height: 48,
                       width: 48,
@@ -703,7 +901,6 @@ class _MapPickerScreenState extends ConsumerState<MapPickerScreen> {
 
                 const SizedBox(height: 12),
 
-                // دکمه تأیید موقعیت مکانی با حاشیه مناسب از پایین
                 SizedBox(
                   width: double.infinity,
                   height: 50,
@@ -759,6 +956,9 @@ class _MapPickerScreenState extends ConsumerState<MapPickerScreen> {
 
                             final combinedAddress = _fullAddressController.text
                                 .trim();
+                            final shamsiFormatted = _toShamsi(
+                              scheduleResult.gregorianDate,
+                            );
 
                             final requestPayload = {
                               'latitude': selectedLocation.latitude,
@@ -772,7 +972,13 @@ class _MapPickerScreenState extends ConsumerState<MapPickerScreen> {
                             };
 
                             if (context.mounted) {
-                              _submitOrder(context, ref, requestPayload);
+                              _submitOrder(
+                                context,
+                                ref,
+                                requestPayload,
+                                shamsiFormatted,
+                                scheduleResult.timeSlot,
+                              );
                             }
                           },
                   ),
@@ -783,53 +989,5 @@ class _MapPickerScreenState extends ConsumerState<MapPickerScreen> {
         ],
       ),
     );
-  }
-
-  Future<void> _submitOrder(
-    BuildContext context,
-    WidgetRef ref,
-    Map<String, dynamic> payload,
-  ) async {
-    showDialog(
-      context: context,
-      barrierDismissible: false,
-      builder: (_) => const Center(child: CircularProgressIndicator()),
-    );
-
-    try {
-      final dio = ref.read(dioProvider);
-      final response = await dio.post('citizen/requests/', data: payload);
-
-      if (context.mounted) Navigator.of(context).pop();
-
-      final orderId = response.data['id'];
-
-      ref.read(orderDraftProvider.notifier).clear();
-      _fullAddressController.clear();
-
-      if (context.mounted) {
-        Navigator.of(context).push(
-          MaterialPageRoute(
-            builder: (_) => TrackingScreen(
-              orderId: orderId,
-              citizenLocation: LatLng(
-                payload['latitude'],
-                payload['longitude'],
-              ),
-            ),
-          ),
-        );
-      }
-    } catch (e) {
-      if (context.mounted) {
-        Navigator.of(context).pop();
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('خطا در ثبت سفارش: $e'),
-            backgroundColor: Colors.red,
-          ),
-        );
-      }
-    }
   }
 }

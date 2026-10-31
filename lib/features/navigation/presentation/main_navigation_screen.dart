@@ -18,10 +18,10 @@ class MainNavigationScreen extends ConsumerStatefulWidget {
 class _MainNavigationScreenState extends ConsumerState<MainNavigationScreen> {
   int _currentIndex = 0;
 
-  // صفحات سه بخش ناوبری
+  // صفحات سه بخش ناوبری (تب وسط به صورت تمام‌صفحه باز می‌شود و نباید در بدنه تکرار شود)
   final List<Widget> _pages = const [
     HomeTabScreen(), // خانه (تعرفه پسماندها و آمار)
-    MapPickerScreen(), // جمع‌آوری (انتخاب موقعیت و زمان‌بندی)
+    SizedBox.shrink(), // موقت و خالی جهت جلوگیری از بازگشت به نقشه
     WithdrawalScreen(), // برداشت (کیف پول و ثبت شبا)
   ];
 
@@ -41,7 +41,6 @@ class _MainNavigationScreenState extends ConsumerState<MainNavigationScreen> {
         ),
         centerTitle: true,
         actions: [
-          // دکمه دراپ‌داون در اپ‌بار برای دسترسی سریع به تراکنش‌ها و تاریخچه‌ها
           PopupMenuButton<String>(
             icon: const Icon(Icons.receipt_long_rounded),
             tooltip: 'تراکنش‌ها و تاریخچه',
@@ -99,10 +98,11 @@ class _MainNavigationScreenState extends ConsumerState<MainNavigationScreen> {
         selectedIndex: _currentIndex,
         onDestinationSelected: (index) {
           if (index == 1) {
-            // باز شدن صفحه نقشه به صورت تمام‌صفحه و پوشش کامل نوبار
+            // باز شدن صفحه نقشه به صورت روت کامل روی کل صفحه
             Navigator.of(
               context,
             ).push(MaterialPageRoute(builder: (_) => const MapPickerScreen()));
+            // ایندکس تغییر نمی‌کند تا پس‌زمینه همواره روی تب خانه بماند
           } else {
             setState(() => _currentIndex = index);
           }
