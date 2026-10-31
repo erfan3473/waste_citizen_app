@@ -7,7 +7,7 @@ import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart' hide Path;
 import 'package:url_launcher/url_launcher.dart';
 import 'package:web_socket_channel/web_socket_channel.dart';
-
+import '../../../core/services/auth_storage.dart';
 import 'package:waste_citizen_app/core/constants/api_endpoints.dart';
 import 'package:waste_citizen_app/core/network/dio_client.dart';
 import '../../navigation/presentation/main_navigation_screen.dart';
@@ -32,8 +32,13 @@ class _TrackingScreenState extends ConsumerState<TrackingScreen> {
 
   LatLng? _driverLocation;
   double _driverBearing = 0.0;
+  double _driverSpeed = 0.0;
   String _orderStatus = 'PENDING';
   String _statusText = 'در حال جستجوی نزدیک‌ترین ناوگان جمع‌آوری...';
+
+  // 🚗 لیست نقاط حرکتی چند ثانیه اخیر برای رسم رد پا روی نقشه
+  final List<LatLng> _driverTrail = [];
+  final Distance _distanceCalc = const Distance();
 
   Map<String, dynamic>? _driverInfo;
   bool _isLoadingInitial = true;
@@ -73,8 +78,11 @@ class _TrackingScreenState extends ConsumerState<TrackingScreen> {
   }
 
   /// اتصال به روم وب‌سوکت پایش زنده سفارش
-  void _connectWebSocket() {
-    final wsUrl = Uri.parse(ApiEndpoints.orderTrackingWs(widget.orderId));
+  Future<void> _connectWebSocket() async {
+    final token = await AuthStorage.getToken();
+    final wsUrl = Uri.parse(
+      '${ApiEndpoints.orderTrackingWs(widget.orderId)}?token=$token',
+    );
     _channel = WebSocketChannel.connect(wsUrl);
 
     _channel!.stream.listen(
@@ -106,16 +114,52 @@ class _TrackingScreenState extends ConsumerState<TrackingScreen> {
           final lat = (data['latitude'] as num).toDouble();
           final lng = (data['longitude'] as num).toDouble();
           final bearing = (data['bearing'] as num?)?.toDouble() ?? 0.0;
+          final speed = (data['speed'] as num?)?.toDouble() ?? 0.0;
+          final newPos = LatLng(lat, lng);
+
+          final isFirstFix = _driverLocation == null;
 
           if (mounted) {
             setState(() {
-              _driverLocation = LatLng(lat, lng);
+              _driverLocation = newPos;
               _driverBearing = bearing;
+              _driverSpeed = speed;
+
+              // ذخیره مسیر جهت رسم خط رد پای سبز
+              if (_driverTrail.isEmpty ||
+                  _distanceCalc.as(
+                        LengthUnit.Meter,
+                        _driverTrail.last,
+                        newPos,
+                      ) >
+                      2.0) {
+                _driverTrail.add(newPos);
+                if (_driverTrail.length > 30) {
+                  _driverTrail.removeAt(0);
+                }
+              }
+
               if (_orderStatus == 'ACCEPTED') {
                 _orderStatus = 'ON_THE_WAY';
                 _statusText = 'ناوگان در مسیر مراجعه به موقعیت شماست';
               }
             });
+
+            // 👈 تنظیم خودکار زوم نقشه برای نمایش هم‌زمان خانه شهروند و خودروی راننده
+            if (isFirstFix) {
+              try {
+                final bounds = LatLngBounds(widget.citizenLocation, newPos);
+                _mapController.fitCamera(
+                  CameraFit.bounds(
+                    bounds: bounds,
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 50,
+                      vertical: 120,
+                    ),
+                  ),
+                );
+              } catch (_) {}
+            }
           }
         } else if (type == 'status_update') {
           final newStatus = data['status'] as String? ?? '';
@@ -160,32 +204,35 @@ class _TrackingScreenState extends ConsumerState<TrackingScreen> {
     }
   }
 
-  /// برقراری تماس با راننده با استفاده از متد استاندارد launchUrl
+  /// برقراری تماس تلفنی مستقیم با راننده
   Future<void> _makePhoneCall(String phoneNumber) async {
     final cleanNumber = phoneNumber.replaceAll(' ', '').trim();
     final Uri launchUri = Uri(scheme: 'tel', path: cleanNumber);
 
     try {
-      final success = await launchUrl(
-        launchUri,
-        mode: LaunchMode.externalApplication,
-      );
-
-      if (!success && mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(
-              'امکان شماره‌گیری خودکار برای $cleanNumber وجود ندارد',
-            ),
-          ),
-        );
-      }
+      await launchUrl(launchUri, mode: LaunchMode.externalApplication);
     } catch (_) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('خطا در باز کردن شماره‌گیر تلفن')),
+          SnackBar(
+            content: Text('امکان تماس خودکار با شماره $cleanNumber وجود ندارد'),
+          ),
         );
       }
+    }
+  }
+
+  /// تمرکز دوربین نقشه روی خودروی راننده
+  void _focusOnDriver() {
+    if (_driverLocation != null) {
+      _mapController.move(_driverLocation!, 16.5);
+    } else {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('هنوز سیگنال موقعیت از خودروی راننده دریافت نشده است.'),
+          duration: Duration(seconds: 2),
+        ),
+      );
     }
   }
 
@@ -244,6 +291,20 @@ class _TrackingScreenState extends ConsumerState<TrackingScreen> {
                 ),
               ),
 
+              // ۲. رسم خط رد پای حرکتی چند ثانیه گذشته راننده
+              if (_driverTrail.length >= 2)
+                PolylineLayer(
+                  polylines: [
+                    Polyline(
+                      points: _driverTrail,
+                      strokeWidth: 5.0,
+                      color: const Color(0xFF2E7D32).withOpacity(0.75),
+                      borderColor: Colors.white,
+                      borderStrokeWidth: 1.5,
+                    ),
+                  ],
+                ),
+
               MarkerLayer(
                 markers: [
                   // مارکر موقعیت تحویل پسماند شهروند (خانه)
@@ -274,21 +335,21 @@ class _TrackingScreenState extends ConsumerState<TrackingScreen> {
                     ),
                   ),
 
-                  // مارکر موقعیت خودروی ناوگان با چرخش جهت
+                  // مارکر موقعیت لحظه‌ای خودروی ناوگان با چرخش زاویه
                   if (_driverLocation != null)
                     Marker(
                       point: _driverLocation!,
-                      width: 52,
-                      height: 52,
+                      width: 56,
+                      height: 56,
                       child: Stack(
                         alignment: Alignment.center,
                         children: [
                           Container(
-                            width: 50,
-                            height: 50,
+                            width: 52,
+                            height: 52,
                             decoration: BoxDecoration(
                               shape: BoxShape.circle,
-                              color: const Color(0xFF2E7D32).withOpacity(0.2),
+                              color: const Color(0xFF2E7D32).withOpacity(0.22),
                             ),
                           ),
                           Container(
@@ -303,11 +364,15 @@ class _TrackingScreenState extends ConsumerState<TrackingScreen> {
                                   blurRadius: 6,
                                 ),
                               ],
+                              border: Border.all(
+                                color: const Color(0xFF2E7D32),
+                                width: 1.5,
+                              ),
                             ),
                             child: Transform.rotate(
                               angle: _driverBearing * (3.1415926535 / 180),
                               child: const Icon(
-                                Icons.local_shipping_rounded,
+                                Icons.navigation_rounded,
                                 color: Color(0xFF2E7D32),
                                 size: 24,
                               ),
@@ -321,7 +386,7 @@ class _TrackingScreenState extends ConsumerState<TrackingScreen> {
             ],
           ),
 
-          // ۲. نوار وضعیت سفارش در بالای صفحه
+          // ۳. نوار وضعیت سفارش در بالای صفحه
           Positioned(
             top: 14,
             left: 16,
@@ -359,13 +424,51 @@ class _TrackingScreenState extends ConsumerState<TrackingScreen> {
                         ),
                       ),
                     ),
+                    if (_driverSpeed > 0) ...[
+                      const SizedBox(width: 8),
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 6,
+                          vertical: 2,
+                        ),
+                        decoration: BoxDecoration(
+                          color: Colors.grey.shade100,
+                          borderRadius: BorderRadius.circular(6),
+                          border: Border.all(color: Colors.grey.shade300),
+                        ),
+                        child: Text(
+                          '${_driverSpeed.round()} km/h',
+                          style: TextStyle(
+                            fontSize: 10.5,
+                            fontWeight: FontWeight.bold,
+                            color: Colors.grey[800],
+                          ),
+                        ),
+                      ),
+                    ],
                   ],
                 ),
               ),
             ),
           ),
 
-          // ۳. پنل پایین: کارت مشخصات راننده و خودرو یا وضعیت انتظار
+          // ۴. دکمه شناور فوکوس روی راننده
+          if (_driverLocation != null)
+            Positioned(
+              right: 16,
+              bottom: 185,
+              child: FloatingActionButton.small(
+                backgroundColor: Colors.white,
+                tooltip: 'مشاهده خودروی راننده',
+                onPressed: _focusOnDriver,
+                child: const Icon(
+                  Icons.near_me_rounded,
+                  color: Color(0xFF2E7D32),
+                ),
+              ),
+            ),
+
+          // ۵. پنل پایین: کارت مشخصات راننده و خودرو یا وضعیت انتظار
           Positioned(
             left: 16,
             right: 16,
@@ -395,13 +498,12 @@ class _TrackingScreenState extends ConsumerState<TrackingScreen> {
                         mainAxisSize: MainAxisSize.min,
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          // سطر مشخصات راننده و دکمه تماس
                           Row(
                             children: [
-                              CircleAvatar(
+                              const CircleAvatar(
                                 radius: 24,
-                                backgroundColor: const Color(0xFFE8F5E9),
-                                child: const Icon(
+                                backgroundColor: Color(0xFFE8F5E9),
+                                child: Icon(
                                   Icons.person_rounded,
                                   color: Color(0xFF2E7D32),
                                   size: 28,
@@ -448,8 +550,6 @@ class _TrackingScreenState extends ConsumerState<TrackingScreen> {
                             ],
                           ),
                           const Divider(height: 20),
-
-                          // سطر مشخصات خودرو و پلاک انتظامی
                           Row(
                             mainAxisAlignment: MainAxisAlignment.spaceBetween,
                             children: [

@@ -10,7 +10,6 @@ import 'package:dio/dio.dart';
 
 import 'package:waste_citizen_app/core/network/dio_client.dart';
 import '../../navigation/presentation/main_navigation_screen.dart';
-import '../../transactions/presentation/transactions_history_screen.dart';
 import 'order_state.dart';
 import 'widgets/schedule_picker_sheet.dart';
 
@@ -50,6 +49,127 @@ class _MapPickerScreenState extends ConsumerState<MapPickerScreen> {
     _searchController.dispose();
     _fullAddressController.dispose();
     super.dispose();
+  }
+
+  /// دیالوگ راهنمای گام‌به‌گام ثبت درخواست
+  void _showHelpDialog() {
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
+        title: const Row(
+          children: [
+            Icon(
+              Icons.help_outline_rounded,
+              color: Color(0xFF2E7D32),
+              size: 24,
+            ),
+            SizedBox(width: 8),
+            Text(
+              'راهنمای ثبت درخواست',
+              style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+            ),
+          ],
+        ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            _buildHelpStepRow(
+              stepNumber: '۱',
+              title: 'تعیین مکان جمع‌آوری',
+              description:
+                  'نقشه را جابه‌جا کرده و پین سبز را روی درب ساختمان قرار دهید.',
+            ),
+            const SizedBox(height: 14),
+            _buildHelpStepRow(
+              stepNumber: '۲',
+              title: 'تعیین زمان مراجعه',
+              description:
+                  'روز و بازه ساعتی مناسب جهت تحویل پسماند را انتخاب نمایید.',
+            ),
+            const SizedBox(height: 14),
+            _buildHelpStepRow(
+              stepNumber: '۳',
+              title: 'حضور پرسنل و توزین',
+              description:
+                  'منتظر حضور راننده ناوگان باشید؛ پس از وزن‌کشی، وجه در لحظه به کیف پول شما واریز می‌شود.',
+            ),
+          ],
+        ),
+        actions: [
+          SizedBox(
+            width: double.infinity,
+            child: ElevatedButton(
+              style: ElevatedButton.styleFrom(
+                backgroundColor: const Color(0xFF2E7D32),
+                foregroundColor: Colors.white,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(10),
+                ),
+              ),
+              onPressed: () => Navigator.of(ctx).pop(),
+              child: const Text(
+                'متوجه شدم',
+                style: TextStyle(fontWeight: FontWeight.bold),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildHelpStepRow({
+    required String stepNumber,
+    required String title,
+    required String description,
+  }) {
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Container(
+          width: 26,
+          height: 26,
+          decoration: const BoxDecoration(
+            color: Color(0xFFE8F5E9),
+            shape: BoxShape.circle,
+          ),
+          alignment: Alignment.center,
+          child: Text(
+            stepNumber,
+            style: const TextStyle(
+              color: Color(0xFF2E7D32),
+              fontWeight: FontWeight.bold,
+              fontSize: 13,
+            ),
+          ),
+        ),
+        const SizedBox(width: 10),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                title,
+                style: const TextStyle(
+                  fontWeight: FontWeight.bold,
+                  fontSize: 13.5,
+                ),
+              ),
+              const SizedBox(height: 3),
+              Text(
+                description,
+                style: TextStyle(
+                  fontSize: 12,
+                  color: Colors.grey[700],
+                  height: 1.3,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
   }
 
   /// تبدیل تاریخ میلادی دریافتی به شمسی استاندارد بدون نیاز به پکیج خارجی
@@ -683,63 +803,14 @@ class _MapPickerScreenState extends ConsumerState<MapPickerScreen> {
                       ),
                     ],
                   ),
-                  child: PopupMenuButton<String>(
+                  child: IconButton(
                     icon: const Icon(
-                      Icons.receipt_long_rounded,
+                      Icons.help_outline_rounded,
                       color: Color(0xFF2E7D32),
                       size: 22,
                     ),
-                    tooltip: 'تراکنش‌ها و سوابق',
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(14),
-                    ),
-                    onSelected: (value) {
-                      if (value == 'wallet') {
-                        Navigator.of(context).push(
-                          MaterialPageRoute(
-                            builder: (_) =>
-                                const TransactionsHistoryScreen(initialTab: 0),
-                          ),
-                        );
-                      } else if (value == 'orders') {
-                        Navigator.of(context).push(
-                          MaterialPageRoute(
-                            builder: (_) =>
-                                const TransactionsHistoryScreen(initialTab: 1),
-                          ),
-                        );
-                      }
-                    },
-                    itemBuilder: (context) => [
-                      const PopupMenuItem(
-                        value: 'wallet',
-                        child: Row(
-                          children: [
-                            Icon(
-                              Icons.account_balance_wallet_outlined,
-                              color: Colors.green,
-                              size: 18,
-                            ),
-                            SizedBox(width: 8),
-                            Text('تراکنش‌های کیف پول'),
-                          ],
-                        ),
-                      ),
-                      const PopupMenuItem(
-                        value: 'orders',
-                        child: Row(
-                          children: [
-                            Icon(
-                              Icons.history_rounded,
-                              color: Colors.blue,
-                              size: 18,
-                            ),
-                            SizedBox(width: 8),
-                            Text('سوابق سفارش‌ها'),
-                          ],
-                        ),
-                      ),
-                    ],
+                    tooltip: 'راهنمای مراحل ثبت درخواست',
+                    onPressed: _showHelpDialog,
                   ),
                 ),
               ],

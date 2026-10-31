@@ -2,10 +2,15 @@
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import '../../order/presentation/map_picker_screen.dart';
-import '../../wallet/presentation/withdrawal_screen.dart';
+
+import '../../../core/constants/api_endpoints.dart';
+import '../../../core/network/dio_client.dart';
+import '../../../core/services/auth_storage.dart';
 import '../../home/presentation/home_tab_screen.dart';
+import '../../order/presentation/map_picker_screen.dart';
 import '../../transactions/presentation/transactions_history_screen.dart';
+import '../../wallet/presentation/withdrawal_screen.dart';
+import '../../auth/presentation/citizen_login_screen.dart';
 
 class MainNavigationScreen extends ConsumerStatefulWidget {
   const MainNavigationScreen({super.key});
@@ -18,11 +23,10 @@ class MainNavigationScreen extends ConsumerStatefulWidget {
 class _MainNavigationScreenState extends ConsumerState<MainNavigationScreen> {
   int _currentIndex = 0;
 
-  // صفحات سه بخش ناوبری (تب وسط به صورت تمام‌صفحه باز می‌شود و نباید در بدنه تکرار شود)
   final List<Widget> _pages = const [
-    HomeTabScreen(), // خانه (تعرفه پسماندها و آمار)
-    SizedBox.shrink(), // موقت و خالی جهت جلوگیری از بازگشت به نقشه
-    WithdrawalScreen(), // برداشت (کیف پول و ثبت شبا)
+    HomeTabScreen(),
+    SizedBox.shrink(),
+    WithdrawalScreen(),
   ];
 
   final List<String> _titles = const [
@@ -30,6 +34,87 @@ class _MainNavigationScreenState extends ConsumerState<MainNavigationScreen> {
     'ثبت درخواست جمع‌آوری',
     'کیف پول و تسویه حساب',
   ];
+
+  /// دیالوگ تایید و اجرای خروج از حساب
+  Future<void> _handleLogout(BuildContext context) async {
+    final shouldLogout = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: const Row(
+          children: [
+            Icon(Icons.logout_rounded, color: Colors.red, size: 24),
+            SizedBox(width: 8),
+            Text(
+              'خروج از حساب کاربری',
+              style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+            ),
+          ],
+        ),
+        content: const Text(
+          'آیا از خروج از حساب کاربری خود در سامانه اکو اطمینان دارید؟',
+          style: TextStyle(fontSize: 13.5),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(false),
+            child: const Text('انصراف', style: TextStyle(color: Colors.grey)),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.red,
+              foregroundColor: Colors.white,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(10),
+              ),
+            ),
+            onPressed: () => Navigator.of(ctx).pop(true),
+            child: const Text('خروج قطعی'),
+          ),
+        ],
+      ),
+    );
+
+    if (shouldLogout != true || !mounted) return;
+
+    // نمایش لودینگ
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (_) => const Center(
+        child: CircularProgressIndicator(color: Color(0xFF2E7D32)),
+      ),
+    );
+
+    try {
+      final dio = ref.read(dioProvider);
+      // فراخوانی اندپوینت ابطال توکن در سرور
+      await dio.post(ApiEndpoints.citizenLogout);
+    } catch (_) {
+      // در صورت خطای شبکه یا قطعی، پاک‌سازی محلی انجام می‌شود
+    } finally {
+      // ۱. پاک‌سازی کامل توکن و شماره موبایل از حافظه پایدار گوشی
+      await AuthStorage.clearAuthData();
+
+      if (mounted) {
+        Navigator.of(context).pop(); // بستن دیالوگ لودینگ
+
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('شما با موفقیت از حساب کاربری خارج شدید.'),
+            backgroundColor: Colors.black87,
+            duration: Duration(seconds: 2),
+          ),
+        );
+
+        // هدایت قطعی به صفحه ورود و حذف تمام صفحات قبلی از حافظه
+        Navigator.of(context).pushAndRemoveUntil(
+          MaterialPageRoute(builder: (_) => const CitizenLoginScreen()),
+          (route) => false,
+        );
+      }
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -43,7 +128,7 @@ class _MainNavigationScreenState extends ConsumerState<MainNavigationScreen> {
         actions: [
           PopupMenuButton<String>(
             icon: const Icon(Icons.receipt_long_rounded),
-            tooltip: 'تراکنش‌ها و تاریخچه',
+            tooltip: 'تراکنش‌ها و حساب کاربری',
             shape: RoundedRectangleBorder(
               borderRadius: BorderRadius.circular(14),
             ),
@@ -62,6 +147,8 @@ class _MainNavigationScreenState extends ConsumerState<MainNavigationScreen> {
                         const TransactionsHistoryScreen(initialTab: 1),
                   ),
                 );
+              } else if (value == 'logout') {
+                _handleLogout(context);
               }
             },
             itemBuilder: (context) => [
@@ -89,6 +176,23 @@ class _MainNavigationScreenState extends ConsumerState<MainNavigationScreen> {
                   ],
                 ),
               ),
+              const PopupMenuDivider(),
+              const PopupMenuItem(
+                value: 'logout',
+                child: Row(
+                  children: [
+                    Icon(Icons.logout_rounded, color: Colors.red, size: 20),
+                    SizedBox(width: 10),
+                    Text(
+                      'خروج از حساب کاربری',
+                      style: TextStyle(
+                        color: Colors.red,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
             ],
           ),
         ],
@@ -98,11 +202,9 @@ class _MainNavigationScreenState extends ConsumerState<MainNavigationScreen> {
         selectedIndex: _currentIndex,
         onDestinationSelected: (index) {
           if (index == 1) {
-            // باز شدن صفحه نقشه به صورت روت کامل روی کل صفحه
             Navigator.of(
               context,
             ).push(MaterialPageRoute(builder: (_) => const MapPickerScreen()));
-            // ایندکس تغییر نمی‌کند تا پس‌زمینه همواره روی تب خانه بماند
           } else {
             setState(() => _currentIndex = index);
           }

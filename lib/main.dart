@@ -1,8 +1,13 @@
 // lib/main.dart
+
 import 'package:flutter/material.dart';
-import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
-import 'package:waste_citizen_app/features/navigation/presentation/main_navigation_screen.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+
+import 'core/constants/nav_keys.dart';
+import 'core/services/auth_storage.dart';
+import 'features/auth/presentation/citizen_login_screen.dart';
+import 'features/navigation/presentation/main_navigation_screen.dart';
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
@@ -15,6 +20,7 @@ class WasteCitizenApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
+      navigatorKey: rootNavigatorKey,
       title: 'اکو - سامانه پسماند',
       debugShowCheckedModeBanner: false,
       locale: const Locale('fa', 'IR'),
@@ -25,14 +31,51 @@ class WasteCitizenApp extends StatelessWidget {
         GlobalCupertinoLocalizations.delegate,
       ],
       theme: ThemeData(
-        fontFamily: 'IRANSans', // یا فونت دلخواه شما
+        fontFamily: 'IRANSans',
         colorScheme: ColorScheme.fromSeed(
-          seedColor: const Color(0xFF1B5E20), // سبز محیط زیستی
+          seedColor: const Color(0xFF1B5E20),
           primary: const Color(0xFF2E7D32),
         ),
         useMaterial3: true,
       ),
-      home: const MainNavigationScreen(),
+      home: const AuthGateScreen(),
+    );
+  }
+}
+
+class AuthGateScreen extends StatefulWidget {
+  const AuthGateScreen({super.key});
+
+  @override
+  State<AuthGateScreen> createState() => _AuthGateScreenState();
+}
+
+class _AuthGateScreenState extends State<AuthGateScreen> {
+  @override
+  void initState() {
+    super.initState();
+    _checkInitialAuth();
+  }
+
+  Future<void> _checkInitialAuth() async {
+    final isLoggedIn = await AuthStorage.hasToken();
+    if (!mounted) return;
+
+    if (isLoggedIn) {
+      Navigator.of(context).pushReplacement(
+        MaterialPageRoute(builder: (_) => const MainNavigationScreen()),
+      );
+    } else {
+      Navigator.of(context).pushReplacement(
+        MaterialPageRoute(builder: (_) => const CitizenLoginScreen()),
+      );
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return const Scaffold(
+      body: Center(child: CircularProgressIndicator(color: Color(0xFF2E7D32))),
     );
   }
 }
