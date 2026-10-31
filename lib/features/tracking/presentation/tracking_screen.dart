@@ -6,6 +6,7 @@ import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart';
 import 'package:web_socket_channel/web_socket_channel.dart';
 import '../../../core/constants/api_endpoints.dart';
+import '../../navigation/presentation/main_navigation_screen.dart';
 
 class TrackingScreen extends StatefulWidget {
   final int orderId;
@@ -65,6 +66,17 @@ class _TrackingScreenState extends State<TrackingScreen> {
     );
   }
 
+  void _handleBackNavigation() {
+    if (Navigator.of(context).canPop()) {
+      Navigator.of(context).pop();
+    } else {
+      Navigator.of(context).pushAndRemoveUntil(
+        MaterialPageRoute(builder: (_) => const MainNavigationScreen()),
+        (route) => false,
+      );
+    }
+  }
+
   @override
   void dispose() {
     _channel?.sink.close();
@@ -78,9 +90,15 @@ class _TrackingScreenState extends State<TrackingScreen> {
       appBar: AppBar(
         title: Text('پیگیری سفارش #${widget.orderId}'),
         centerTitle: true,
+        leading: IconButton(
+          icon: const Icon(Icons.arrow_back_ios_new_rounded),
+          tooltip: 'بازگشت',
+          onPressed: _handleBackNavigation,
+        ),
       ),
       body: Stack(
         children: [
+          // ۱. لایه نقشه
           FlutterMap(
             mapController: _mapController,
             options: MapOptions(
@@ -97,27 +115,27 @@ class _TrackingScreenState extends State<TrackingScreen> {
                   // مارکر موقعیت شهروند
                   Marker(
                     point: widget.citizenLocation,
-                    width: 40,
-                    height: 40,
+                    width: 44,
+                    height: 44,
                     child: const Icon(
                       Icons.home_mini,
                       color: Colors.blue,
-                      size: 40,
+                      size: 44,
                     ),
                   ),
 
-                  // مارکر موقعیت لحظه‌ای راننده (در صورت دریافت پکت)
+                  // مارکر موقعیت راننده با زاویه چرخش (Bearing)
                   if (_driverLocation != null)
                     Marker(
                       point: _driverLocation!,
-                      width: 44,
-                      height: 44,
+                      width: 46,
+                      height: 46,
                       child: Transform.rotate(
                         angle: _driverBearing * (3.1415926535 / 180),
                         child: const Icon(
                           Icons.local_shipping_rounded,
                           color: Colors.green,
-                          size: 40,
+                          size: 44,
                         ),
                       ),
                     ),
@@ -126,7 +144,7 @@ class _TrackingScreenState extends State<TrackingScreen> {
             ],
           ),
 
-          // پنل وضعیت بالای نقشه
+          // ۲. پنل وضعیت بالای نقشه
           Positioned(
             top: 16,
             left: 16,
@@ -134,7 +152,7 @@ class _TrackingScreenState extends State<TrackingScreen> {
             child: Card(
               elevation: 4,
               shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(12),
+                borderRadius: BorderRadius.circular(14),
               ),
               child: Padding(
                 padding: const EdgeInsets.symmetric(
@@ -143,19 +161,53 @@ class _TrackingScreenState extends State<TrackingScreen> {
                 ),
                 child: Row(
                   children: [
-                    const Icon(Icons.info_outline, color: Colors.green),
-                    const SizedBox(width: 10),
+                    const SizedBox(
+                      width: 18,
+                      height: 18,
+                      child: CircularProgressIndicator(strokeWidth: 2.2),
+                    ),
+                    const SizedBox(width: 12),
                     Expanded(
                       child: Text(
                         _orderStatus,
                         style: const TextStyle(
                           fontWeight: FontWeight.bold,
-                          fontSize: 14,
+                          fontSize: 13.5,
                         ),
                       ),
                     ),
                   ],
                 ),
+              ),
+            ),
+          ),
+
+          // ۳. دکمه میانبر بازگشت به خانه در پایین صفحه
+          Positioned(
+            left: 20,
+            right: 20,
+            bottom: 24,
+            child: SizedBox(
+              height: 48,
+              child: ElevatedButton.icon(
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: Colors.white,
+                  foregroundColor: const Color(0xFF2E7D32),
+                  elevation: 5,
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(14),
+                    side: const BorderSide(
+                      color: Color(0xFF2E7D32),
+                      width: 1.2,
+                    ),
+                  ),
+                ),
+                icon: const Icon(Icons.home_outlined),
+                label: const Text(
+                  'بازگشت به منوی اصلی',
+                  style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15),
+                ),
+                onPressed: _handleBackNavigation,
               ),
             ),
           ),

@@ -2,7 +2,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
-import 'package:waste_citizen_app/features/features/order/presentation/order_flow_screen.dart';
+import 'package:waste_citizen_app/features/navigation/presentation/main_navigation_screen.dart';
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
@@ -32,7 +32,7 @@ class WasteCitizenApp extends StatelessWidget {
         ),
         useMaterial3: true,
       ),
-      home: const OrderFlowScreen(),
+      home: const MainNavigationScreen(),
     );
   }
 }
